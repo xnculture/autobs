@@ -6,3 +6,4 @@ build/
 *.spec
 *.log
 obs_scheduler.log
+obs_scheduler_config.json

@@ -1,0 +1,19 @@
+{
+    "host": "localhost",
+    "port": "4455",
+    "password": "YOUR_PASSWORD_HERE",
+    "auto_connect": true,
+    "tasks": [],
+    "presets": {
+        "Example Preset": [
+            {
+                "time": "10:00",
+                "action": "Start Streaming",
+                "type": "weekly",
+                "days": [
+                    "Mon"
+                ]
+            }
+        ]
+    }
+}
