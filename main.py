@@ -150,11 +150,19 @@ class OBSSchedulerApp:
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scrollbar.set)
+        
+        # Configure tags for enabled/disabled
+        self.tree.tag_configure("disabled", foreground="gray")
+        self.tree.tag_configure("enabled", foreground="black")
+
 
         btn_frame = ttk.Frame(list_frame)
         btn_frame.pack(side="bottom", fill="x", pady=5)
         ttk.Button(btn_frame, text="Remove Selected", command=self.remove_task, takefocus=0).pack(side="right", padx=5)
+        ttk.Button(btn_frame, text="Toggle Enable/Disable", command=self.toggle_task_status, takefocus=0).pack(side="right", padx=5)
+        ttk.Button(btn_frame, text="Edit Selected", command=self.load_task_for_edit, takefocus=0).pack(side="right", padx=5)
         ttk.Button(btn_frame, text="Clear All", command=self.clear_all_tasks).pack(side="right", padx=5)
+
 
         # 4. Preset Management Frame
         preset_frame = ttk.LabelFrame(self.root, text="Presets")
@@ -180,6 +188,8 @@ class OBSSchedulerApp:
 
         # Initialize internal task list
         self.current_tasks = []
+        self.editing_index = None
+
         
         # Restore tasks from config
         for task in self.core.config.get("tasks", []):
@@ -375,9 +385,25 @@ class OBSSchedulerApp:
                 messagebox.showerror("Invalid Date", "Date must be in YYYY-MM-DD format.")
                 return
 
-        self.add_task_to_ui(new_task)
+        if self.editing_index is not None:
+            # Update existing task
+            old_task = self.current_tasks[self.editing_index]
+            new_task["enabled"] = old_task.get("enabled", True) # Preserve enabled status
+            
+            self.current_tasks[self.editing_index] = new_task
+            self.refresh_task_list_ui()
+            
+            self.editing_index = None
+            self.btn_add.config(text="Add Task")
+            self.log(f"Task updated: {t_action} at {t_time}")
+        else:
+            # Add new task
+            new_task["enabled"] = True
+            self.add_task_to_ui(new_task)
+            self.log(f"Scheduled: {t_action} at {t_time} ({t_freq})")
+
         self.save_config_ui()
-        self.log(f"Scheduled: {t_action} at {t_time} ({t_freq})")
+
 
     def add_task_to_ui(self, task):
         # Updates internal list and treeview
@@ -409,7 +435,128 @@ class OBSSchedulerApp:
             details = "Every day"
 
         # Insert with new column order: Freq, Details, Time, Action
-        self.tree.insert("", "end", values=(freq_display, details, display_time, t_action))
+        # Apply tag based on enabled status
+        is_enabled = task.get("enabled", True)
+        tag = "enabled" if is_enabled else "disabled"
+        
+        self.tree.insert("", "end", values=(freq_display, details, display_time, t_action), tags=(tag,))
+
+    def refresh_task_list_ui(self):
+        # Clear tree
+        self.tree.delete(*self.tree.get_children())
+        # Re-populate from current_tasks
+        # We temporarily clear current_tasks to avoid duplication in add_task_to_ui, 
+        # or we just copy the logic of inserting to tree.
+        # To avoid refactoring add_task_to_ui too much, let's just manually insert here or use a helper.
+        # Actually, add_task_to_ui appends to current_tasks. We shouldn't use it here.
+        
+        for task in self.current_tasks:
+            t_time = task.get("time")
+            t_action = task.get("action")
+            t_type = task.get("type", "daily")
+            t_enabled = task.get("enabled", True)
+            
+            try:
+                if len(t_time.split(":")) == 2:
+                    display_time = datetime.strptime(t_time, "%H:%M").strftime("%I:%M %p")
+                else:
+                    display_time = datetime.strptime(t_time, "%H:%M:%S").strftime("%I:%M:%S %p")
+            except ValueError:
+                display_time = t_time
+
+            details = ""
+            freq_display = "Daily"
+            
+            if t_type == "weekly":
+                freq_display = "Weekly"
+                details = ",".join(task.get("days", []))
+            elif t_type == "onetime":
+                freq_display = "One-time"
+                details = task.get("date", "")
+            elif t_type == "daily":
+                details = "Every day"
+
+            tag = "enabled" if t_enabled else "disabled"
+            self.tree.insert("", "end", values=(freq_display, details, display_time, t_action), tags=(tag,))
+
+    def load_task_for_edit(self):
+        selected_item = self.tree.selection()
+        if not selected_item:
+            return
+        
+        index = self.tree.index(selected_item)
+        if not (0 <= index < len(self.current_tasks)):
+            return
+
+        task = self.current_tasks[index]
+        self.editing_index = index
+        self.btn_add.config(text="Update Task")
+        
+        # Populate fields
+        # 1. Action
+        self.combo_action.set(task.get("action"))
+        
+        # 2. Time
+        t_time = task.get("time")
+        try:
+            # Parse time
+            parts = t_time.split(":")
+            h = int(parts[0])
+            m = int(parts[1])
+            s = int(parts[2]) if len(parts) > 2 else 0
+            
+            # Convert to 12h for UI
+            ampm = "AM"
+            if h >= 12:
+                ampm = "PM"
+                if h > 12:
+                    h -= 12
+            if h == 0:
+                h = 12
+                
+            self.spin_hour.set(h)
+            self.spin_min.set(f"{m:02d}")
+            self.spin_sec.set(f"{s:02d}")
+            self.combo_ampm.set(ampm)
+        except:
+            pass
+            
+        # 3. Frequency & Details
+        t_type = task.get("type", "daily")
+        if t_type == "daily":
+            self.combo_freq.current(0)
+        elif t_type == "weekly":
+            self.combo_freq.current(1)
+            # Set days
+            days = task.get("days", [])
+            for day, var in self.days_vars.items():
+                var.set(day in days)
+        elif t_type == "onetime":
+            self.combo_freq.current(2)
+            self.entry_date.delete(0, "end")
+            self.entry_date.insert(0, task.get("date", ""))
+            
+        self.update_dynamic_options()
+        self.log(f"Editing task #{index + 1}")
+
+    def toggle_task_status(self):
+        selected_item = self.tree.selection()
+        if not selected_item:
+            return
+        
+        index = self.tree.index(selected_item)
+        if 0 <= index < len(self.current_tasks):
+            task = self.current_tasks[index]
+            new_status = not task.get("enabled", True)
+            task["enabled"] = new_status
+            self.current_tasks[index] = task
+            
+            self.refresh_task_list_ui()
+            self.save_config_ui()
+            
+            status_str = "Enabled" if new_status else "Disabled"
+            self.log(f"Task #{index + 1} {status_str}")
+
 
     def remove_task(self):
         selected_item = self.tree.selection()
@@ -428,6 +575,12 @@ class OBSSchedulerApp:
         
         self.save_config_ui()
         self.log("Task removed.")
+        
+        # Reset edit mode if we removed the task being edited
+        if self.editing_index == index:
+            self.editing_index = None
+            self.btn_add.config(text="Add Task")
+
 
     def clear_all_tasks(self):
         if not self.current_tasks:

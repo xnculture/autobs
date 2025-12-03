@@ -133,6 +133,11 @@ class OBSSchedulerCore:
                 t_action = task.get("action")
                 # Default to 'daily' for backward compatibility
                 t_type = task.get("type", "daily") 
+                t_enabled = task.get("enabled", True)
+
+                if not t_enabled:
+                    self.log(f"Skipping disabled task: {t_action} at {t_time}")
+                    continue
                 
                 if not t_time or not t_action:
                     continue
