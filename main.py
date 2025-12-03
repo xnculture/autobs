@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import obs_core
 import threading
 import time
@@ -15,7 +15,9 @@ class OBSSchedulerApp:
         self.root.resizable(False, False)
 
         # Initialize Core Logic
-        self.core = obs_core.OBSSchedulerCore()
+        # Pass a thread-safe logging wrapper
+        self.core = obs_core.OBSSchedulerCore(log_callback=self.thread_safe_log)
+
 
         # --- UI Layout ---
         self.create_widgets()
@@ -129,12 +131,16 @@ class OBSSchedulerApp:
         # Initial state
         self.update_dynamic_options()
 
-        # 3. Task List
+        # 3. Task List Area (Split into Tree and Buttons)
         list_frame = ttk.LabelFrame(self.root, text="Scheduled Tasks")
         list_frame.pack(padx=10, pady=5, fill="both", expand=True)
 
-        # Columns: Freq, Details, Time, Action (Reordered)
-        self.tree = ttk.Treeview(list_frame, columns=("Freq", "Details", "Time", "Action"), show="headings")
+        # Container for Treeview (Left)
+        tree_container = ttk.Frame(list_frame)
+        tree_container.pack(side="left", fill="both", expand=True, padx=(5, 0), pady=5)
+
+        # Columns: Freq, Details, Time, Action
+        self.tree = ttk.Treeview(tree_container, columns=("Freq", "Details", "Time", "Action"), show="headings")
         self.tree.heading("Freq", text="Freq")
         self.tree.heading("Details", text="Details")
         self.tree.heading("Time", text="Time")
@@ -147,7 +153,7 @@ class OBSSchedulerApp:
         
         self.tree.pack(side="left", fill="both", expand=True)
 
-        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.tree.yview)
+        scrollbar = ttk.Scrollbar(tree_container, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scrollbar.set)
         
@@ -155,13 +161,21 @@ class OBSSchedulerApp:
         self.tree.tag_configure("disabled", foreground="gray")
         self.tree.tag_configure("enabled", foreground="black")
 
-
+        # Container for Buttons (Right) - Vertical Stack
         btn_frame = ttk.Frame(list_frame)
-        btn_frame.pack(side="bottom", fill="x", pady=5)
-        ttk.Button(btn_frame, text="Remove Selected", command=self.remove_task, takefocus=0).pack(side="right", padx=5)
-        ttk.Button(btn_frame, text="Toggle Enable/Disable", command=self.toggle_task_status, takefocus=0).pack(side="right", padx=5)
-        ttk.Button(btn_frame, text="Edit Selected", command=self.load_task_for_edit, takefocus=0).pack(side="right", padx=5)
-        ttk.Button(btn_frame, text="Clear All", command=self.clear_all_tasks).pack(side="right", padx=5)
+        btn_frame.pack(side="right", fill="y", padx=5, pady=5)
+
+        # Style for bigger buttons
+        style = ttk.Style()
+        style.configure("Big.TButton", font=("Helvetica", 10), padding=5)
+
+        # Buttons
+        ttk.Button(btn_frame, text="Edit Selected", command=self.load_task_for_edit, style="Big.TButton", width=20).pack(fill="x", pady=2)
+        ttk.Button(btn_frame, text="Toggle Enable/Disable", command=self.toggle_task_status, style="Big.TButton", width=20).pack(fill="x", pady=2)
+        ttk.Button(btn_frame, text="Remove Selected", command=self.remove_task, style="Big.TButton", width=20).pack(fill="x", pady=2)
+        ttk.Separator(btn_frame, orient="horizontal").pack(fill="x", pady=5)
+        ttk.Button(btn_frame, text="Clear All", command=self.clear_all_tasks, style="Big.TButton", width=20).pack(fill="x", pady=2)
+
 
 
         # 4. Preset Management Frame
@@ -185,6 +199,10 @@ class OBSSchedulerApp:
         
         self.btn_del_preset = ttk.Button(preset_frame, text="Delete", command=self.delete_preset, takefocus=0)
         self.btn_del_preset.grid(row=0, column=6, padx=5, pady=5)
+
+        self.btn_import_preset = ttk.Button(preset_frame, text="Import", command=self.import_presets_ui, takefocus=0)
+        self.btn_import_preset.grid(row=0, column=7, padx=5, pady=5)
+
 
         # Initialize internal task list
         self.current_tasks = []
@@ -225,8 +243,13 @@ class OBSSchedulerApp:
         else: # Daily
             pass # Nothing extra needed
 
+    def thread_safe_log(self, message):
+        # Schedule the log update on the main GUI thread
+        self.root.after(0, self.log, message)
+
     def log(self, message):
         timestamp = datetime.now().strftime("[%H:%M:%S]")
+
         full_msg = f"{timestamp} {message}\n"
         self.log_text.config(state="normal")
         self.log_text.insert("end", full_msg)
@@ -307,6 +330,31 @@ class OBSSchedulerApp:
                 self.log(f"Preset '{name}' deleted.")
             else:
                 messagebox.showerror("Error", "Failed to delete preset.")
+
+    def import_presets_ui(self):
+        file_path = filedialog.askopenfilename(
+            title="Select Preset File",
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
+        )
+        if not file_path:
+            return
+        
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            success, msg = self.core.import_presets(data)
+            if success:
+                self.refresh_preset_list()
+                self.log(msg)
+                messagebox.showinfo("Import Success", msg)
+            else:
+                messagebox.showerror("Import Failed", msg)
+        except json.JSONDecodeError:
+            messagebox.showerror("Error", "Invalid JSON file.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to import: {e}")
+
 
     def toggle_connection(self):
         if self.core.is_connected:

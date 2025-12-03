@@ -14,17 +14,20 @@ logging.basicConfig(
 )
 
 class OBSSchedulerCore:
-        def __init__(self, config_file="obs_scheduler_config.json"):
+        def __init__(self, config_file="obs_scheduler_config.json", log_callback=None):
             self.config_file = config_file
             self.presets_file = "presets.json"
             self.obs_client = None
             self.is_connected = False
             self.last_mtime = 0
+            self.log_callback = log_callback
             self.config = self.load_config()
     
         def log(self, message):
             print(message)
             logging.info(message)
+            if self.log_callback:
+                self.log_callback(message)
     
         def load_config(self):
             if os.path.exists(self.config_file):
@@ -242,4 +245,22 @@ class OBSSchedulerCore:
                 self.log(f"Preset '{name}' deleted.")
                 return True
             return False
+
+        def import_presets(self, new_presets):
+            if not isinstance(new_presets, dict):
+                return False, "Invalid format. Expected a dictionary of presets."
+            
+            count = 0
+            current_presets = self.load_presets_file()
+            for name, tasks in new_presets.items():
+                if isinstance(tasks, list):
+                    current_presets[name] = tasks
+                    count += 1
+            
+            if count > 0:
+                self.save_presets_file(current_presets)
+                self.log(f"Imported {count} presets.")
+                return True, f"Successfully imported {count} presets."
+            else:
+                return False, "No valid presets found to import."
     

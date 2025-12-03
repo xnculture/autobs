@@ -1,0 +1,40 @@
+{
+    "Evening Stream": [
+        {
+            "time": "19:55:00",
+            "action": "Start Recording",
+            "type": "daily",
+            "enabled": true
+        },
+        {
+            "time": "20:00:00",
+            "action": "Start Streaming",
+            "type": "daily",
+            "enabled": true
+        },
+        {
+            "time": "23:00:00",
+            "action": "Stop Streaming",
+            "type": "daily",
+            "enabled": true
+        },
+        {
+            "time": "23:05:00",
+            "action": "Stop Recording",
+            "type": "daily",
+            "enabled": true
+        }
+    ],
+    "Weekend Special": [
+        {
+            "time": "13:00:00",
+            "action": "Start Streaming",
+            "type": "weekly",
+            "days": [
+                "Sat",
+                "Sun"
+            ],
+            "enabled": true
+        }
+    ]
+}
